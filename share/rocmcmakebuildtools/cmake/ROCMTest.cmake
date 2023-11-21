@@ -5,6 +5,13 @@ include(ROCMCreatePackage)
 include(ROCMInstallTargets)
 include(CTest)
 
+if(NOT BUILD_TESTING)
+    # Do not provide ROCm test infrastructure if building tests is disabled.
+    return()
+endif()
+
+option(ROCM_INSTALL_TESTS "Enable installing of tests for ROCm component" OFF)
+
 find_package(Threads REQUIRED)
 include(ProcessorCount)
 processorcount(_rocm_ctest_parallel_level)
@@ -19,8 +26,10 @@ add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -j ${
 add_custom_target(tests COMMENT "Build all tests.")
 add_dependencies(check tests)
 
-add_custom_target(install-tests COMMAND ${CMAKE_COMMAND} -DCOMPONENT=tests -P ${CMAKE_BINARY_DIR}/cmake_install.cmake)
-add_dependencies(install-tests tests)
+if(ROCM_INSTALL_TESTS)
+    add_custom_target(install-tests COMMAND ${CMAKE_COMMAND} -DCOMPONENT=tests -P ${CMAKE_BINARY_DIR}/cmake_install.cmake)
+    add_dependencies(install-tests tests)
+endif()
 
 rocm_define_property(TARGET "ROCM_TEST_INSTALLDIR" "Install dir for tests")
 macro(rocm_enable_test_package NAME)
@@ -207,6 +216,11 @@ function(rocm_link_test_dependencies)
 endfunction()
 
 function(rocm_install_test)
+    if(NOT ROCM_INSTALL_TESTS)
+        # Skip test installation if not requested.
+        return()
+    endif()
+
     set(options)
     set(oneValueArgs DESTINATION)
     set(multiValueArgs TARGETS FILES)
@@ -224,6 +238,16 @@ function(rocm_install_test)
             EXCLUDE_FROM_ALL)
         rocm_set_install_dir_property(TARGETS ${PARSE_TARGETS} DESTINATION ${INSTALL_PREFIX}/bin)
         get_target_property(INSTALLDIR ${PARSE_TARGETS} ROCM_INSTALL_DIR)
+        if(WIN32)
+            foreach(TEST_TARGET ${PARSE_TARGETS})
+                list(APPEND INSTALL_PDB_FILES $<TARGET_PDB_FILE:${TEST_TARGET}>)
+            endforeach()
+            install(
+                FILES ${INSTALL_PDB_FILES}
+                COMPONENT tests
+                DESTINATION ${INSTALL_PREFIX}/bin OPTIONAL
+                EXCLUDE_FROM_ALL)
+        endif()    
     endif()
     if(PARSE_FILES)
         install(
